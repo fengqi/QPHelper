@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import OSLog
+import ServiceManagement
 
 private let logger = Logger(subsystem: "com.fengqi.QPHelper", category: "AppMonitor")
 
@@ -22,6 +23,19 @@ final class AppMonitor: ObservableObject {
     @Published var monitoredAppCount: Int = 0           // 当前正在监控的前台应用数量
     @Published var excludedApps: [String: String] = [:] // 用户排除的应用 [BundleID: 应用名]，持久化在 UserDefaults
     @Published var panelAction: PanelAction = .none    // 弹框时附带的动作，持久化在 UserDefaults
+
+    // SMAppService，macOS 13+ 原生开机启动
+    var launchAtLogin: Bool {
+        get { SMAppService.mainApp.status == .enabled }
+        set {
+            do {
+                if newValue { try SMAppService.mainApp.register() }
+                else { try SMAppService.mainApp.unregister() }
+            } catch {
+                logger.error("开机启动设置失败: \(error.localizedDescription)")
+            }
+        }
+    }
 
     // [bundleID: 最后活跃时间]，记录每个应用上次被使用的时间点
     private var lastActiveTime: [String: Date] = [:]

@@ -7,6 +7,7 @@ struct MenuView: View {
         VStack(alignment: .leading, spacing: 8) {
             settingsSection
             panelActionSection
+            launchAtLoginSection
             Divider()
             statusSection
             if !monitor.idleApps.isEmpty {
@@ -169,6 +170,23 @@ struct MenuView: View {
             HStack(spacing: 4) {
                 Image(systemName: "cursorarrow.rays")
                 Text("弹框动作: \(monitor.panelAction.rawValue)")
+            }
+        }
+    }
+
+    private var launchAtLoginSection: some View {
+        let isOn = monitor.launchAtLogin
+        return Menu {
+            Button(isOn ? "关闭" : "关闭 ✓") {
+                monitor.launchAtLogin = false
+            }
+            Button(isOn ? "开启 ✓" : "开启") {
+                monitor.launchAtLogin = true
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "bolt")
+                Text(isOn ? "开机启动: 开启" : "开机启动: 关闭")
             }
         }
     }
