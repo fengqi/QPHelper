@@ -57,39 +57,48 @@ struct MenuView: View {
         }
     }
 
-    // 单个空闲应用的展示行，包含"退出"和"排除"两个操作按钮
+    // 单个空闲应用的展示行，点击弹出子菜单"退出"/"排除"
+    // 空闲时长显示在右侧，子菜单顶部也会显示完整时长信息
     private func idleAppRow(_ app: AppMonitor.IdleAppInfo) -> some View {
-        HStack {
-            Image(systemName: "app.dashed")
-                .foregroundColor(.orange) // 橙色图标
-
-            VStack(alignment: .leading) {
-                Text(app.appName)
-                    .font(.system(size: 13, weight: .medium)) // 自定义字号和字重
-                Text("空闲 \(formatIdleDuration(app.idleDuration))")
-                    .font(.caption)              // 小号说明文字
-                    .foregroundColor(.secondary)  // 灰色文字
+        Menu {
+            Text("已空闲 \(formatIdleDuration(app.idleDuration))")
+                .foregroundColor(.secondary)
+            Divider()
+            Button("退出") {
+                monitor.quitApp(bundleIdentifier: app.bundleIdentifier)
             }
-
-            Spacer() // 弹性空间：把左侧内容推到左边，右侧内容推到右边
-
-            // 排除按钮：将此应用从监控列表中移除，不再弹出通知
             Button("排除") {
                 monitor.excludeApp(bundleID: app.bundleIdentifier, appName: app.appName)
             }
-            .buttonStyle(.borderless)
-            .controlSize(.small)
-            .foregroundColor(.secondary)
-
-            Button("退出") {
-                // 点击后调用 monitor 的 quitApp 方法退出该应用
-                monitor.quitApp(bundleIdentifier: app.bundleIdentifier)
+        } label: {
+            HStack {
+                appIcon(app.icon)
+                Text(app.appName)
+                    .font(.system(size: 13, weight: .medium))
+                Spacer()
+                Text(formatIdleDuration(app.idleDuration))
+                    .font(.caption)
+                    .foregroundColor(.secondary)
             }
-            .buttonStyle(.borderedProminent) // 实心突出按钮样式
-            .controlSize(.small)              // 小号按钮
-            .tint(.orange)                    // 按钮颜色
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-        .padding(.vertical, 2) // 垂直方向 2 点内边距
+    }
+
+    // 将 NSImage 转为 SwiftUI Image，nil 时返回占位图标
+    private func appIcon(_ nsImage: NSImage?) -> some View {
+        Group {
+            if let nsImage {
+                Image(nsImage: nsImage).resizable().frame(width: 16, height: 16)
+            } else {
+                Image(systemName: "app.dashed").font(.system(size: 12)).foregroundColor(.orange).frame(width: 16, height: 16)
+            }
+        }
+    }
+
+    // 根据 Bundle ID 查找运行中应用的图标，未运行则返回占位图标
+    private func appIcon(for bundleID: String) -> some View {
+        let icon = NSRunningApplication.runningApplications(withBundleIdentifier: bundleID).first?.icon
+        return appIcon(icon)
     }
 
     // 已排除的应用列表，可在此恢复监控
@@ -99,21 +108,19 @@ struct MenuView: View {
                 .font(.subheadline)
                 .foregroundColor(.secondary)
 
-            // 字典的 keys 转成排序后的数组再遍历
             ForEach(Array(monitor.excludedApps.keys.sorted()), id: \.self) { bundleID in
-                HStack {
-                    Image(systemName: "nosign")
-                        .foregroundColor(.secondary)
-                    Text(monitor.excludedApps[bundleID] ?? bundleID)
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondary)
-                    Spacer()
+                // Menu 嵌套在 MenuBarExtra 中会渲染为子菜单，点击弹出操作项
+                Menu {
                     Button("恢复") {
                         monitor.unexcludeApp(bundleID: bundleID)
                     }
-                    .buttonStyle(.borderless)
-                    .controlSize(.small)
-                    .tint(.blue)
+                } label: {
+                    HStack {
+                        appIcon(for: bundleID)
+                        Text(monitor.excludedApps[bundleID] ?? bundleID)
+                            .font(.system(size: 13))
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
         }
@@ -121,23 +128,19 @@ struct MenuView: View {
 
     // 设置区域：空闲阈值选择器
     private var settingsSection: some View {
-        HStack {
-            Image(systemName: "timer")
-            Text("空闲阈值:")
-            // Picker：下拉选择器
-            // $monitor.idleThresholdMinutes：双向绑定
-            // 用户选择 → 自动更新 monitor.idleThresholdMinutes
-            // monitor.idleThresholdMinutes 变化 → 自动更新 Picker 显示
-            Picker("", selection: $monitor.idleThresholdMinutes) {
-                // .tag()：给每个选项赋一个 Int 值，对应 Selection 的类型
-                Text("5 分钟").tag(5)
-                Text("10 分钟").tag(10)
-                Text("20 分钟").tag(20)
-                Text("30 分钟").tag(30)
-                Text("60 分钟").tag(60)
+        // Menu：图标和文字合为一行，点击弹出选项列表，当前选项带 ✓
+        Menu {
+            Button(monitor.idleThresholdMinutes == 1  ? "1 分钟 ✓" : "1 分钟")   { monitor.idleThresholdMinutes = 1 }
+            Button(monitor.idleThresholdMinutes == 5  ? "5 分钟 ✓" : "5 分钟")  { monitor.idleThresholdMinutes = 5 }
+            Button(monitor.idleThresholdMinutes == 10 ? "10 分钟 ✓" : "10 分钟") { monitor.idleThresholdMinutes = 10 }
+            Button(monitor.idleThresholdMinutes == 20 ? "20 分钟 ✓" : "20 分钟") { monitor.idleThresholdMinutes = 20 }
+            Button(monitor.idleThresholdMinutes == 30 ? "30 分钟 ✓" : "30 分钟") { monitor.idleThresholdMinutes = 30 }
+            Button(monitor.idleThresholdMinutes == 60 ? "60 分钟 ✓" : "60 分钟") { monitor.idleThresholdMinutes = 60 }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "timer")
+                Text("空闲阈值: \(monitor.idleThresholdMinutes) 分钟")
             }
-            .pickerStyle(.menu)   // 下拉菜单样式
-            .frame(maxWidth: 120) // 限制宽度
         }
     }
 

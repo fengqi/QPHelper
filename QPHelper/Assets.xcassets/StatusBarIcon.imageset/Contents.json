@@ -1,19 +1,13 @@
 {
   "images" : [
     {
-      "filename" : "icon_16pt@1x_16x16.png",
-      "idiom" : "universal",
+      "filename" : "StatusBarIcon-22.svg",
+      "idiom" : "mac",
       "scale" : "1x"
     },
     {
-      "filename" : "icon_16pt@2x_32x32.png",
-      "idiom" : "universal",
+      "idiom" : "mac",
       "scale" : "2x"
-    },
-    {
-      "filename" : "icon_32pt@2x_64x64.png",
-      "idiom" : "universal",
-      "scale" : "3x"
     }
   ],
   "info" : {
