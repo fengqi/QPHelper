@@ -1,9 +1,15 @@
 import SwiftUI
 
+// View 协议：SwiftUI 中所有 UI 组件都必须遵循，要求实现 body 计算属性
+// 类似 React 的 Component.render() 或 Flutter 的 Widget.build()
 struct MenuView: View {
+    // @ObservedObject：观察一个 ObservableObject，类似 Vue 的 watch
+    // 当对象的 @Published 属性变化时，View 自动重新渲染
     @ObservedObject var monitor: AppMonitor
 
     var body: some View {
+        // VStack：垂直布局容器，子视图从上到下排列
+        // spacing: 8 子视图间距，alignment: .leading 左对齐
         VStack(alignment: .leading, spacing: 8) {
             settingsSection
             panelActionSection
@@ -22,24 +28,27 @@ struct MenuView: View {
         .frame(width: 340)
     }
 
-    // MARK: - Status
+    // MARK: - 状态显示
 
+    // "监控中: N 个应用"
     private var statusSection: some View {
         Text("👁 监控中: \(monitor.monitoredAppCount) 个应用")
             .font(.system(size: 13))
-            .fixedSize()
+            .fixedSize()  // 防止文字被截断为省略号
     }
 
-    // MARK: - Idle Apps
+    // MARK: - 空闲应用列表
 
     private var idleAppsSection: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text("空闲应用:")
                 .font(.subheadline)
-                .foregroundColor(.secondary)
+                .foregroundColor(.secondary)  // 次级文字颜色（灰色）
 
+            // prefix(10)：只显示前 10 条，避免菜单过长
             ForEach(Array(monitor.idleApps.prefix(10))) { idleAppRow($0) }
             if monitor.idleApps.count > 10 {
+                // NSMenu 列表过长时用子菜单折叠："... 还有 N 个"
                 Menu("... 还有 \(monitor.idleApps.count - 10) 个") {
                     ForEach(Array(monitor.idleApps.suffix(from: 10))) { idleAppRow($0) }
                 }
@@ -48,7 +57,10 @@ struct MenuView: View {
         }
     }
 
+    // 单个空闲应用的显示行
     private func idleAppRow(_ app: AppMonitor.IdleAppInfo) -> some View {
+        // Menu：macOS 的右键菜单/下拉菜单组件
+        // 用作 NSMenu item 的 submenu（嵌套菜单）
         Menu {
             Text("已空闲 \(formatDuration(app.idleDuration))")
                 .foregroundColor(.secondary)
@@ -59,16 +71,17 @@ struct MenuView: View {
             HStack {
                 AppIconView(bundleID: app.bundleIdentifier)
                 Text(app.appName).font(.system(size: 13, weight: .medium))
-                Spacer()
+                Spacer()  // 弹性空间：把左侧内容推到左边，右侧推到右边
                 Text(formatDuration(app.idleDuration)).font(.caption).foregroundColor(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
-    // MARK: - Excluded Apps
+    // MARK: - 已排除应用列表
 
     private var excludedAppsSection: some View {
+        // 字典的 keys 排序后遍历
         let list = Array(monitor.excludedApps.keys.sorted())
         return VStack(alignment: .leading, spacing: 4) {
             Text("已排除:")
@@ -102,8 +115,10 @@ struct MenuView: View {
         }
     }
 
-    // MARK: - Settings
+    // MARK: - 设置
 
+    // 空闲阈值菜单：下拉选择预设时长
+    // Debug 构建多一个 "1 分钟" 选项方便调试
     private var settingsSection: some View {
         Menu {
 #if DEBUG
@@ -120,13 +135,16 @@ struct MenuView: View {
         }
     }
 
+    // 计算当前阈值的中文标签
     private var thresholdLabel: String {
         let m = monitor.idleThresholdMinutes
         return m < 60 ? "\(m) 分钟" : "\(m / 60) 小时"
     }
 
+    // 弹框动作菜单
     private var panelActionSection: some View {
         Menu {
+            // ForEach 遍历 enum 的 allCases（类似 Java enum 的 values()）
             ForEach(PanelAction.allCases, id: \.self) { action in
                 Button(monitor.panelAction == action ? "\(action.rawValue) ✓" : action.rawValue) {
                     monitor.panelAction = action
@@ -140,6 +158,7 @@ struct MenuView: View {
         }
     }
 
+    // 开机启动开关菜单
     private var launchAtLoginSection: some View {
         let isOn = monitor.launchAtLogin
         return Menu {
@@ -153,17 +172,20 @@ struct MenuView: View {
         }
     }
 
+    // 退出本应用按钮
     private var quitButton: some View {
         Button {
+            // NSApplication.shared.terminate(nil)：退出整个应用
+            // 类似 Java 的 System.exit(0)
             NSApplication.shared.terminate(nil)
         } label: {
             HStack {
                 Image(systemName: "power")
                 Text("退出 QPHelper")
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity)  // 按钮撑满行宽
         }
-        .buttonStyle(.borderless)
-        .foregroundColor(.secondary)
+        .buttonStyle(.borderless)        // 无边框按钮
+        .foregroundColor(.secondary)     // 灰色文字
     }
 }

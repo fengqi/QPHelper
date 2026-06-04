@@ -46,6 +46,14 @@ QPHelper/
 - 阈值默认值：Debug 1 分钟，Release 60 分钟
 - `orderFront(nil)` 而非 `makeKeyAndOrderFront`（后者对 `.nonactivatingPanel` 无效）
 
+## 注释风格
+
+- 面向 Go/Java 程序员，用类比解释 Swift 特有语法（如 `@Published` ≈ RxJava BehaviorSubject、`ObservableObject` ≈ Vue reactive）
+- 每个文件、公开类型、公开方法必须有注释
+- **已有注释不得删除**，只在逻辑变更时同步更新
+- 日志辅助函数（`logInfo`/`logDebug`/`logError`）必须保留，不得移除或改写为裸 `print`/`NSLog`
+- 日志中的 emoji 前缀（`▶`、`🔔`、`🚫`、`⚠️` 等）不得移除
+
 ## 注意事项
 
 - `MenuBarExtra` 底层是 `NSMenu`，不支持 `.onHover` 和滚轮
