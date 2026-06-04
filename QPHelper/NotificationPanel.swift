@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-// 自定义悬浮通知面板：模仿 macOS 通知的紧凑样式，右上角弹出，不自动消失
+// 自定义悬浮通知面板：右上角弹出，不自动消失，卡片式布局
 final class NotificationPanel: NSObject, NSWindowDelegate {
     private var panel: NSPanel?
     private var onDismiss: (() -> Void)?
@@ -14,6 +14,8 @@ final class NotificationPanel: NSObject, NSWindowDelegate {
         idleDuration: TimeInterval,
         onQuit: @escaping () -> Void,
         onKeep: @escaping () -> Void,
+        onExclude: @escaping () -> Void,
+        onActivate: @escaping () -> Void,
         onDismiss: @escaping () -> Void
     ) {
         close()
@@ -30,11 +32,21 @@ final class NotificationPanel: NSObject, NSWindowDelegate {
             onKeep: { [weak self] in
                 onKeep()
                 self?.dismiss()
+            },
+            onExclude: { [weak self] in
+                onExclude()
+                self?.dismiss()
+            },
+            onActivate: {
+                onActivate()
             }
         )
 
         let hostingView = NSHostingView(rootView: contentView)
         hostingView.frame.size = hostingView.fittingSize
+        hostingView.wantsLayer = true
+        hostingView.layer?.cornerRadius = 16
+        hostingView.layer?.masksToBounds = true
 
         let panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: hostingView.fittingSize),
@@ -53,7 +65,7 @@ final class NotificationPanel: NSObject, NSWindowDelegate {
 
         positionAtTopRight(panel)
 
-        panel.makeKeyAndOrderFront(nil)
+        panel.orderFront(nil)
         self.panel = panel
     }
 
@@ -87,68 +99,104 @@ final class NotificationPanel: NSObject, NSWindowDelegate {
         guard let screen = NSScreen.main else { return }
         let screenFrame = screen.visibleFrame
         let windowFrame = window.frame
-        let x = screenFrame.maxX - windowFrame.width - 20
-        let y = screenFrame.maxY - windowFrame.height - 20
+        let x = screenFrame.maxX - windowFrame.width - 18
+        let y = screenFrame.maxY - windowFrame.height - 18
         window.setFrameOrigin(NSPoint(x: x, y: y))
     }
 }
 
-// 悬浮面板的 SwiftUI 内容：卡片式，右上角关闭按钮，按钮在右下角
+// 悬浮面板内容：通知卡片风格，上排图标+文字，下排操作按钮
 private struct PanelContentView: View {
     let appName: String
     let icon: NSImage?
     let idleDuration: TimeInterval
     let onQuit: () -> Void
     let onKeep: () -> Void
+    let onExclude: () -> Void
+    let onActivate: () -> Void
+
+    @State private var retainHovered = false
+    @State private var excludeHovered = false
+    @State private var quitHovered = false
 
     var body: some View {
-        ZStack(alignment: .topTrailing) {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .top, spacing: 12) {
-                    if let icon {
-                        Image(nsImage: icon)
-                            .resizable()
-                            .frame(width: 36, height: 36)
-                    }
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 10) {
+                appIcon
+                    .onTapGesture { onActivate() }
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("\"\(appName)\" 已 \(formatDuration(idleDuration)) 未使用")
-                            .font(.system(size: 14, weight: .medium))
-                        Text("要退出这个应用吗？")
-                            .font(.system(size: 13))
-                            .foregroundColor(.secondary)
-                    }
-                }
-
-                Spacer(minLength: 8)
-
-                HStack {
-                    Spacer()
-                    Button("保留") { onKeep() }
-                        .buttonStyle(.plain)
-                        .controlSize(.regular)
-                        .foregroundColor(.secondary)
-                    Button("退出") { onQuit() }
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.regular)
-                        .tint(.orange)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(appName)
+                        .font(.system(size: 12.5, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                    Text("已闲置 \(formatDuration(idleDuration))")
+                        .font(.system(size: 13.5, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                    Text("要退出这个应用吗？")
+                        .font(.system(size: 12.5, weight: .regular))
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            .padding(16)
 
-            // 右上角灰色关闭按钮
-            Button { onKeep() } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .medium))
+            Spacer(minLength: 12)
+
+            HStack(spacing: 8) {
+                Spacer()
+
+                Button("保留") { onKeep() }
+                    .buttonStyle(NotificationActionButtonStyle(isHovered: retainHovered, isPrimary: false))
+                    .onHover { retainHovered = $0 }
+
+                Button("排除") { onExclude() }
+                    .buttonStyle(NotificationActionButtonStyle(isHovered: excludeHovered, isPrimary: false))
+                    .onHover { excludeHovered = $0 }
+
+                Button("退出") { onQuit() }
+                    .buttonStyle(NotificationActionButtonStyle(isHovered: quitHovered, isPrimary: false))
+                    .onHover { quitHovered = $0 }
             }
-            .buttonStyle(.plain)
-            .foregroundColor(.secondary.opacity(0.5))
-            .padding(6)
-            .help("关闭")
         }
-        .frame(width: 360, height: 130)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
-        .onTapGesture(perform: onKeep) // 点击非按钮区域 = 关闭
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .frame(width: 342, height: 112, alignment: .topLeading)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(.regularMaterial)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onTapGesture(perform: onKeep)
+    }
+
+    @ViewBuilder
+    private var appIcon: some View {
+        if let icon {
+            Image(nsImage: icon)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: 32, height: 32)
+                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 7, style: .continuous)
+                        .strokeBorder(Color.white.opacity(0.08), lineWidth: 0.5)
+                )
+        } else {
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
+                .fill(.secondary.opacity(0.14))
+                .frame(width: 32, height: 32)
+                .overlay(
+                    Image(systemName: "app")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                )
+        }
     }
 
     private func formatDuration(_ seconds: TimeInterval) -> String {
@@ -158,5 +206,33 @@ private struct PanelContentView: View {
         let remainingMinutes = minutes % 60
         if remainingMinutes == 0 { return "\(hours) 小时" }
         return "\(hours) 小时 \(remainingMinutes) 分钟"
+    }
+}
+
+// 胶囊按钮样式：hover 变黑底白字，默认玻璃质感
+private struct NotificationActionButtonStyle: ButtonStyle {
+    let isHovered: Bool
+    let isPrimary: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        let isActive = isHovered || configuration.isPressed
+
+        return configuration.label
+            .font(.system(size: 12.5, weight: isPrimary ? .semibold : .regular))
+            .foregroundStyle(isActive ? .white : (isPrimary ? .primary : .secondary))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(
+                Capsule(style: .continuous)
+                    .fill(isActive ? Color.black.opacity(configuration.isPressed ? 0.45 : 0.35)
+                                  : (isPrimary ? Color.white.opacity(0.18) : Color.white.opacity(0.04)))
+            )
+            .overlay(
+                Capsule(style: .continuous)
+                    .strokeBorder(Color.white.opacity(isActive ? 0 : (isPrimary ? 0.08 : 0.05)), lineWidth: 1)
+            )
+            .contentShape(Capsule(style: .continuous))
+            .animation(.easeInOut(duration: 0.15), value: isHovered)
+            .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
     }
 }

@@ -249,6 +249,15 @@ final class AppMonitor: ObservableObject {
                 self?.lastActiveTime[app.bundleIdentifier] = Date()
                 self?.notifiedApps.remove(app.bundleIdentifier)
             },
+            onExclude: { [weak self] in
+                self?.excludeApp(bundleID: app.bundleIdentifier, appName: app.appName)
+            },
+            onActivate: { [weak self] in
+                guard let runningApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == app.bundleIdentifier }) else { return }
+                if runningApp.isHidden { runningApp.unhide() }
+                runningApp.activate()
+                logger.info("⬆ 用户点击打开: \(app.appName, privacy: .public)")
+            },
             onDismiss: { [weak self] in
                 self?.currentPanelBundleID = nil
             }
