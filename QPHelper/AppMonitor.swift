@@ -37,6 +37,8 @@ final class AppMonitor: ObservableObject {
     private let myBundleID = Bundle.main.bundleIdentifier ?? ""
     // 自定义悬浮通知面板
     private let panel = NotificationPanel()
+    // 用户离开状态（锁屏/休眠）
+    private var isAway = false
 
     // 系统关键应用名单，这些应用即使空闲也不会建议退出
     private let systemCriticalApps: Set<String> = [
@@ -105,6 +107,26 @@ final class AppMonitor: ObservableObject {
         nc.addObserver(self, selector: #selector(handleTerminate),
                        name: NSWorkspace.didTerminateApplicationNotification, object: nil)
 
+        // 锁屏/休眠暂停计时
+        nc.addObserver(self, selector: #selector(handleAway),
+                       name: NSWorkspace.screensDidSleepNotification, object: nil)
+        nc.addObserver(self, selector: #selector(handleAway),
+                       name: NSWorkspace.willSleepNotification, object: nil)
+        nc.addObserver(self, selector: #selector(handleReturn),
+                       name: NSWorkspace.screensDidWakeNotification, object: nil)
+        nc.addObserver(self, selector: #selector(handleReturn),
+                       name: NSWorkspace.didWakeNotification, object: nil)
+        DistributedNotificationCenter.default().addObserver(
+            self, selector: #selector(handleAway),
+            name: NSNotification.Name("com.apple.screenIsLocked"),
+            object: nil
+        )
+        DistributedNotificationCenter.default().addObserver(
+            self, selector: #selector(handleReturn),
+            name: NSNotification.Name("com.apple.screenIsUnlocked"),
+            object: nil
+        )
+
         // 保底定时器：每 60 秒兜底扫描一次，防止极端情况下事件丢失
         timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
             self?.checkIdleApps()
@@ -171,9 +193,35 @@ final class AppMonitor: ObservableObject {
         }
     }
 
+    // 锁屏/休眠：暂停计时
+    @objc private func handleAway(_ notification: Notification) {
+        guard !isAway else { return }
+        isAway = true
+        // 关闭当前面板
+        if currentPanelBundleID != nil {
+            panel.close()
+            currentPanelBundleID = nil
+        }
+        logger.info("💤 用户离开，暂停计时")
+    }
+
+    // 解锁/唤醒：重置全部计时
+    @objc private func handleReturn(_ notification: Notification) {
+        guard isAway else { return }
+        isAway = false
+        let now = Date()
+        for key in lastActiveTime.keys {
+            lastActiveTime[key] = now
+        }
+        notifiedApps.removeAll()
+        logger.info("👁 用户回来，已重置全部计时")
+        checkIdleApps()
+    }
+
     // MARK: - 空闲检测（核心逻辑）
 
     private func checkIdleApps() {
+        guard !isAway else { return }
         let now = Date()
         let threshold = TimeInterval(idleThresholdMinutes * 60)
         var idle: [IdleAppInfo] = []
