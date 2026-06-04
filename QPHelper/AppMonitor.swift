@@ -4,13 +4,24 @@ import OSLog
 
 private let logger = Logger(subsystem: "com.fengqi.QPHelper", category: "AppMonitor")
 
+// 弹框时附带的动作
+enum PanelAction: String, CaseIterable {
+    case none = "无"
+    case activate = "打开应用"
+}
+
 // ObservableObject 协议：让 SwiftUI 视图能监听这个对象的数据变化
 // @Published 标记的属性一旦改变，会通知所有观察它的 View 自动刷新
 final class AppMonitor: ObservableObject {
     @Published var idleApps: [IdleAppInfo] = []       // 当前超时空闲的应用列表
-    @Published var idleThresholdMinutes: Int = 1      // 空闲阈值（分钟），默认 1 分钟方便调试
+#if DEBUG
+    @Published var idleThresholdMinutes: Int = 1      // 空闲阈值，Debug 默认 1 分钟方便测试
+#else
+    @Published var idleThresholdMinutes: Int = 60     // 空闲阈值，Release 默认 1 小时
+#endif
     @Published var monitoredAppCount: Int = 0           // 当前正在监控的前台应用数量
     @Published var excludedApps: [String: String] = [:] // 用户排除的应用 [BundleID: 应用名]，持久化在 UserDefaults
+    @Published var panelAction: PanelAction = .none    // 弹框时附带的动作，持久化在 UserDefaults
 
     // [bundleID: 最后活跃时间]，记录每个应用上次被使用的时间点
     private var lastActiveTime: [String: Date] = [:]
@@ -58,6 +69,18 @@ final class AppMonitor: ObservableObject {
 
         // 从 UserDefaults 加载用户之前排除的应用列表 [BundleID: 应用名]
         excludedApps = UserDefaults.standard.dictionary(forKey: "excludedApps") as? [String: String] ?? [:]
+
+        // 从 UserDefaults 加载弹框动作
+        if let raw = UserDefaults.standard.string(forKey: "panelAction"),
+           let action = PanelAction(rawValue: raw) {
+            panelAction = action
+        }
+
+        // 弹框动作变化时持久化
+        $panelAction
+            .dropFirst()
+            .sink { UserDefaults.standard.set($0.rawValue, forKey: "panelAction") }
+            .store(in: &cancellables)
     }
 
     // 判断一个应用是否应该被跟踪（排除自身和用户手动排除的应用）
@@ -159,6 +182,7 @@ final class AppMonitor: ObservableObject {
         for app in NSWorkspace.shared.runningApplications {
             guard let bundleID = app.bundleIdentifier,
                   app.activationPolicy == .regular,
+                  !app.isActive,                     // 当前前台应用永远不算空闲
                   bundleID != myBundleID,
                   !systemCriticalApps.contains(bundleID),
                   excludedApps[bundleID] == nil
@@ -207,6 +231,12 @@ final class AppMonitor: ObservableObject {
             notifiedApps.remove(oldBundleID) // 允许被替换的应用后续重新弹出
         }
 
+        // 如果设置了"打开应用"动作，仅记录日志，激活由面板点击触发
+        if panelAction == .activate {
+            logger.info("⬆ 检测到空闲应用: \(app.appName, privacy: .public) (\(app.bundleIdentifier, privacy: .public))")
+        }
+
+        logger.info("📌 弹出面板: \(app.appName, privacy: .public)")
         panel.show(
             appName: app.appName,
             icon: app.icon,
@@ -218,9 +248,6 @@ final class AppMonitor: ObservableObject {
                 // 重置空闲计时，下个阈值周期后再次提醒
                 self?.lastActiveTime[app.bundleIdentifier] = Date()
                 self?.notifiedApps.remove(app.bundleIdentifier)
-            },
-            onExclude: { [weak self] in
-                self?.excludeApp(bundleID: app.bundleIdentifier, appName: app.appName)
             },
             onDismiss: { [weak self] in
                 self?.currentPanelBundleID = nil
