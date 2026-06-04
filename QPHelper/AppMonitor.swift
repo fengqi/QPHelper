@@ -385,6 +385,8 @@ private func logDebug(_ message: String) {
 #endif
 }
 // logError 保留：Release 中仍然输出错误日志
+// 使用独立 Logger，不受 #if DEBUG 限制
+private let errorLogger = Logger(subsystem: "com.fengqi.QPHelper", category: "AppMonitor")
 private func logError(_ message: String) {
-    logger.error("\(message, privacy: .public)")
+    errorLogger.error("\(message, privacy: .public)")
 }

@@ -1,0 +1,8 @@
+# 构建产物
+build/
+
+# Xcode 用户数据（scheme 选择等个人设置）
+xcuserdata/
+
+# macOS 系统文件
+.DS_Store
