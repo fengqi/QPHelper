@@ -214,7 +214,14 @@ final class AppMonitor: ObservableObject {
             onQuit: { [weak self] in
                 self?.quitApp(bundleIdentifier: app.bundleIdentifier)
             },
-            onKeep: { /* 什么都不做，面板关闭即可 */ },
+            onKeep: { [weak self] in
+                // 重置空闲计时，下个阈值周期后再次提醒
+                self?.lastActiveTime[app.bundleIdentifier] = Date()
+                self?.notifiedApps.remove(app.bundleIdentifier)
+            },
+            onExclude: { [weak self] in
+                self?.excludeApp(bundleID: app.bundleIdentifier, appName: app.appName)
+            },
             onDismiss: { [weak self] in
                 self?.currentPanelBundleID = nil
             }
@@ -262,6 +269,7 @@ final class AppMonitor: ObservableObject {
         lastActiveTime.removeValue(forKey: bundleIdentifier)
         notifiedApps.remove(bundleIdentifier)
         currentPanelBundleID = nil
+        checkIdleApps()
     }
 
     // MARK: - 格式化工具方法

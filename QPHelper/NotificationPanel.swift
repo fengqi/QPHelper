@@ -14,6 +14,7 @@ final class NotificationPanel: NSObject, NSWindowDelegate {
         idleDuration: TimeInterval,
         onQuit: @escaping () -> Void,
         onKeep: @escaping () -> Void,
+        onExclude: @escaping () -> Void,
         onDismiss: @escaping () -> Void
     ) {
         close()
@@ -30,11 +31,19 @@ final class NotificationPanel: NSObject, NSWindowDelegate {
             onKeep: { [weak self] in
                 onKeep()
                 self?.dismiss()
+            },
+            onExclude: { [weak self] in
+                onExclude()
+                self?.dismiss()
             }
         )
 
         let hostingView = NSHostingView(rootView: contentView)
         hostingView.frame.size = hostingView.fittingSize
+        // 裁剪 NSView 的直角，使面板覆盖在浅色窗口上时不露馅
+        hostingView.wantsLayer = true
+        hostingView.layer?.cornerRadius = 16
+        hostingView.layer?.masksToBounds = true
 
         let panel = NSPanel(
             contentRect: NSRect(origin: .zero, size: hostingView.fittingSize),
@@ -53,7 +62,7 @@ final class NotificationPanel: NSObject, NSWindowDelegate {
 
         positionAtTopRight(panel)
 
-        panel.makeKeyAndOrderFront(nil)
+        panel.orderFront(nil)
         self.panel = panel
     }
 
@@ -100,6 +109,11 @@ private struct PanelContentView: View {
     let idleDuration: TimeInterval
     let onQuit: () -> Void
     let onKeep: () -> Void
+    let onExclude: () -> Void
+
+    @State private var retainHovered = false
+    @State private var excludeHovered = false
+    @State private var quitHovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -131,15 +145,21 @@ private struct PanelContentView: View {
                 Spacer()
 
                 Button("保留") { onKeep() }
-                    .buttonStyle(NotificationActionButtonStyle(isPrimary: false))
+                    .buttonStyle(NotificationActionButtonStyle(isHovered: retainHovered, isPrimary: false))
+                    .onHover { retainHovered = $0 }
+
+                Button("排除") { onExclude() }
+                    .buttonStyle(NotificationActionButtonStyle(isHovered: excludeHovered, isPrimary: false))
+                    .onHover { excludeHovered = $0 }
 
                 Button("退出") { onQuit() }
-                    .buttonStyle(NotificationActionButtonStyle(isPrimary: true))
+                    .buttonStyle(NotificationActionButtonStyle(isHovered: quitHovered, isPrimary: false))
+                    .onHover { quitHovered = $0 }
             }
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
-        .frame(width: 332, height: 112, alignment: .topLeading)
+        .frame(width: 342, height: 112, alignment: .topLeading)
         .background(
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(.regularMaterial)
@@ -149,7 +169,6 @@ private struct PanelContentView: View {
                 .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
         )
         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .shadow(color: .black.opacity(0.22), radius: 14, x: 0, y: 6)
         .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
         .onTapGesture(perform: onKeep)
     }
@@ -190,23 +209,28 @@ private struct PanelContentView: View {
 
 // 轻量按钮样式：接近系统通知底部操作按钮
 private struct NotificationActionButtonStyle: ButtonStyle {
+    let isHovered: Bool
     let isPrimary: Bool
 
     func makeBody(configuration: Configuration) -> some View {
-        configuration.label
+        let isActive = isHovered || configuration.isPressed
+
+        return configuration.label
             .font(.system(size: 12.5, weight: isPrimary ? .semibold : .regular))
-            .foregroundStyle(isPrimary ? .primary : .secondary)
+            .foregroundStyle(isActive ? .white : (isPrimary ? .primary : .secondary))
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background(
                 Capsule(style: .continuous)
-                    .fill(isPrimary ? Color.white.opacity(configuration.isPressed ? 0.12 : 0.18)
-                                    : Color.white.opacity(configuration.isPressed ? 0.08 : 0.05))
+                    .fill(isActive ? Color.black.opacity(configuration.isPressed ? 0.45 : 0.35)
+                                  : (isPrimary ? Color.white.opacity(0.18) : Color.white.opacity(0.04)))
             )
             .overlay(
                 Capsule(style: .continuous)
-                    .strokeBorder(Color.white.opacity(isPrimary ? 0.08 : 0.05), lineWidth: 1)
+                    .strokeBorder(Color.white.opacity(isActive ? 0 : (isPrimary ? 0.08 : 0.05)), lineWidth: 1)
             )
             .contentShape(Capsule(style: .continuous))
+            .animation(.easeInOut(duration: 0.15), value: isHovered)
+            .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
     }
 }
