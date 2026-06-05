@@ -39,6 +39,8 @@ final class AppMonitor: ObservableObject {
             do {
                 if newValue { try SMAppService.mainApp.register() }
                 else { try SMAppService.mainApp.unregister() }
+                // 通知 SwiftUI 重绘菜单（computed property 无 @Published，需手动触发）
+                objectWillChange.send()
             } catch {
                 logError("开机启动设置失败: \(error.localizedDescription)")
             }
