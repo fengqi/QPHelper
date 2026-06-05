@@ -15,8 +15,7 @@ struct MenuView: View {
             panelActionSection
             launchAtLoginSection
             Divider()
-            statusSection
-            if !monitor.idleApps.isEmpty { idleAppsSection }
+            trackedAppsSection
             if !monitor.excludedApps.isEmpty {
                 Divider()
                 excludedAppsSection
@@ -28,40 +27,31 @@ struct MenuView: View {
         .frame(width: 340)
     }
 
-    // MARK: - 状态显示
+    // MARK: - 被监控应用列表（始终显示，空闲/非空闲视觉区分）
 
-    // "监控中: N 个应用"
-    private var statusSection: some View {
-        Text("👁 监控中: \(monitor.monitoredAppCount) 个应用")
-            .font(.system(size: 13))
-            .fixedSize()  // 防止文字被截断为省略号
-    }
-
-    // MARK: - 空闲应用列表
-
-    private var idleAppsSection: some View {
+    private var trackedAppsSection: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("空闲应用:")
-                .font(.subheadline)
-                .foregroundColor(.secondary)  // 次级文字颜色（灰色）
+            Text("👁 监控中: \(monitor.trackedApps.count) 个应用")
+                .font(.system(size: 13))
+                .fixedSize()
 
-            // prefix(10)：只显示前 10 条，避免菜单过长
-            ForEach(Array(monitor.idleApps.prefix(10))) { idleAppRow($0) }
-            if monitor.idleApps.count > 10 {
-                // NSMenu 列表过长时用子菜单折叠："... 还有 N 个"
-                Menu("... 还有 \(monitor.idleApps.count - 10) 个") {
-                    ForEach(Array(monitor.idleApps.suffix(from: 10))) { idleAppRow($0) }
+            let threshold = TimeInterval(monitor.idleThresholdMinutes * 60)
+            let list = monitor.trackedApps
+
+            ForEach(Array(list.prefix(10))) { trackedAppRow($0, threshold: threshold) }
+            if list.count > 10 {
+                Menu("... 还有 \(list.count - 10) 个") {
+                    ForEach(Array(list.suffix(from: 10))) { trackedAppRow($0, threshold: threshold) }
                 }
                 .font(.caption).foregroundColor(.secondary)
             }
         }
     }
 
-    // 单个空闲应用的显示行
-    private func idleAppRow(_ app: AppMonitor.IdleAppInfo) -> some View {
-        // Menu：macOS 的右键菜单/下拉菜单组件
-        // 用作 NSMenu item 的 submenu（嵌套菜单）
-        Menu {
+    // 单个监控应用的显示行
+    private func trackedAppRow(_ app: AppMonitor.IdleAppInfo, threshold: TimeInterval) -> some View {
+        let isIdle = app.idleDuration >= threshold
+        return Menu {
             Text("已空闲 \(formatDuration(app.idleDuration))")
                 .foregroundColor(.secondary)
             Divider()
@@ -70,9 +60,12 @@ struct MenuView: View {
         } label: {
             HStack {
                 AppIconView(bundleID: app.bundleIdentifier)
-                Text(app.appName).font(.system(size: 13, weight: .medium))
-                Spacer()  // 弹性空间：把左侧内容推到左边，右侧推到右边
-                Text(formatDuration(app.idleDuration)).font(.caption).foregroundColor(.secondary)
+                Text(app.appName)
+                    .font(.system(size: 13, weight: isIdle ? .medium : .regular))
+                Spacer()
+                Text(formatDuration(app.idleDuration))
+                    .font(.caption)
+                    .foregroundColor(isIdle ? .orange : .secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         }

@@ -21,13 +21,13 @@ enum PanelAction: String, CaseIterable {
 final class AppMonitor: ObservableObject {
     // @Published：属性包装器，值变化时通知所有观察的 View 重新渲染
     // 内部原理是 Combine 框架的 Publisher，类似 RxJava 的 BehaviorSubject
-    @Published var idleApps: [IdleAppInfo] = []       // 当前超时空闲的应用列表
+    @Published var idleApps: [IdleAppInfo] = []       // 当前超时空闲的应用列表（弹框和日志用）
+    @Published var trackedApps: [IdleAppInfo] = []    // 全部被监控的应用列表（UI 始终显示）
 #if DEBUG
     @Published var idleThresholdMinutes: Int = 1       // Debug 默认 1 分钟（方便调试）
 #else
     @Published var idleThresholdMinutes: Int = 60      // Release 默认 60 分钟
 #endif
-    @Published var monitoredAppCount: Int = 0           // 当前正在监控的前台应用数量
     @Published var excludedApps: [String: String] = [:] // 用户排除的应用 [BundleID: 应用名]
     @Published var panelAction: PanelAction = .none     // 弹框时的附加动作
 
@@ -51,6 +51,8 @@ final class AppMonitor: ObservableObject {
     private var lastActiveTime: [String: Date] = [:]
     // 已经弹过面板的应用集合，避免对同一个应用反复弹出
     private var notifiedApps: Set<String> = []
+    // 已请求退出但尚未收到 terminate 通知的应用（terminate() 是异步的，退出有延迟）
+    private var pendingQuitBundleIDs: Set<String> = []
     // 当前正在显示的面板对应的 BundleID（用于追踪是否需要关闭旧面板）
     private var currentPanelBundleID: String?
     // 兜底定时器：事件驱动之外的保底扫描（60 秒一次）
@@ -203,6 +205,7 @@ final class AppMonitor: ObservableObject {
               let bundleID = app.bundleIdentifier else { return }
         lastActiveTime.removeValue(forKey: bundleID)
         notifiedApps.remove(bundleID)
+        pendingQuitBundleIDs.remove(bundleID)
         if bundleID == currentPanelBundleID {
             panel.close()
             currentPanelBundleID = nil
@@ -240,7 +243,7 @@ final class AppMonitor: ObservableObject {
         let now = Date()
         let threshold = TimeInterval(idleThresholdMinutes * 60)
         var idle: [IdleAppInfo] = []
-        var regularAppCount = 0
+        var tracked: [IdleAppInfo] = []
 
         // 遍历所有运行中的应用，检测超时空闲
         for app in NSWorkspace.shared.runningApplications {
@@ -249,39 +252,49 @@ final class AppMonitor: ObservableObject {
                   !app.isActive,                          // 当前激活的应用不判空闲
                   bundleID != myBundleID,                  // 排除本应用自身
                   !systemCriticalApps.contains(bundleID),  // 排除系统关键应用
-                  excludedApps[bundleID] == nil            // 排除用户手动排除的应用
+                  excludedApps[bundleID] == nil,           // 排除用户手动排除的应用
+                  !pendingQuitBundleIDs.contains(bundleID)  // 排除正在退出中的应用
             else { continue }
-
-            regularAppCount += 1
 
             // 计算空闲时长 = 当前时间 - 最后活跃时间
             // ?? 是 nil 合并运算符：左边为 nil 时用右边的值
             let lastActive = lastActiveTime[bundleID] ?? now
             let idleDuration = now.timeIntervalSince(lastActive)
 
+            let info = IdleAppInfo(
+                bundleIdentifier: bundleID,
+                appName: app.localizedName ?? bundleID,
+                lastActive: lastActive,
+                idleDuration: idleDuration
+            )
+            tracked.append(info)
+
             if idleDuration >= threshold {
                 // 符合条件：加入空闲列表
-                idle.append(IdleAppInfo(
-                    bundleIdentifier: bundleID,
-                    appName: app.localizedName ?? bundleID,
-                    lastActive: lastActive,
-                    idleDuration: idleDuration
-                ))
+                idle.append(info)
 
                 // 如果还没弹过面板且当前没有面板在显示，弹出新面板
                 if !notifiedApps.contains(bundleID) && !panel.isShowing {
-                    showPanel(for: idle.last!, withIcon: app.icon)
+                    showPanel(for: info, withIcon: app.icon)
                     notifiedApps.insert(bundleID)
                 }
             }
         }
 
+        // 按空闲时长降序排列，最久未使用的排在前面
+        tracked.sort { $0.idleDuration > $1.idleDuration }
+        idle.sort { $0.idleDuration > $1.idleDuration }
+
         // 更新 @Published 属性，触发 UI 刷新
+        trackedApps = tracked
         idleApps = idle
-        monitoredAppCount = regularAppCount
 
         // 取交集：移除已不在空闲列表中的应用的通知标记
         notifiedApps.formIntersection(Set(idle.map(\.bundleIdentifier)))
+
+        // 清理已退出的应用（如果 terminate 通知丢失，兜底清理 pendingQuitBundleIDs）
+        let runningBundleIDs = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+        pendingQuitBundleIDs.formIntersection(runningBundleIDs)
 
         if !idle.isEmpty {
             logInfo("🔔 空闲应用: \(idle.map { "\($0.appName)(\(formatBriefDuration($0.idleDuration)))" }.joined(separator: ", "))")
@@ -358,6 +371,7 @@ final class AppMonitor: ObservableObject {
             }
         }
         // 清理跟踪数据
+        pendingQuitBundleIDs.insert(bundleIdentifier)
         lastActiveTime.removeValue(forKey: bundleIdentifier)
         notifiedApps.remove(bundleIdentifier)
         currentPanelBundleID = nil
