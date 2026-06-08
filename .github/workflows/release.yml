@@ -1,0 +1,50 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    name: Build and Release
+    runs-on: macos-15
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build x86_64
+        run: |
+          xcodebuild -project QPHelper.xcodeproj -scheme QPHelper -configuration Release \
+            ARCHS="x86_64" \
+            CONFIGURATION_BUILD_DIR=./build/x86_64 \
+            VALID_ARCHS="x86_64" \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
+            clean build
+
+      - name: Archive x86_64
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            ./build/x86_64/QPHelper.app \
+            "./build/QPHelper-x86_64-${{ github.ref_name }}.zip"
+
+      - name: Build arm64
+        run: |
+          xcodebuild -project QPHelper.xcodeproj -scheme QPHelper -configuration Release \
+            ARCHS="arm64" \
+            CONFIGURATION_BUILD_DIR=./build/arm64 \
+            VALID_ARCHS="arm64" \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO \
+            clean build
+
+      - name: Archive arm64
+        run: |
+          ditto -c -k --sequesterRsrc --keepParent \
+            ./build/arm64/QPHelper.app \
+            "./build/QPHelper-arm64-${{ github.ref_name }}.zip"
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: ./build/QPHelper-*.zip
