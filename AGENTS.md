@@ -40,6 +40,7 @@ QPHelper/
 - **系统关键应用永不建议退出**：Finder、loginwindow、systemuiserver。
 - **图标内存**：`IdleAppInfo` 不持有 `NSImage`，图标通过 `AppIconView` 按需查找。
 - **日志**：`logInfo`/`logDebug` 在 Release 构建中为 no-op，`logError` 保留。
+- **媒体播放器白名单**：`mediaPlayerBundleIDs` 集合包含已知媒体播放器（Apple Music、Spotify、QQ音乐、网易云音乐、IINA、VLC、QuickTime Player 等），这些应用在后台播放时不应被建议退出，不判定为空闲。
 
 ## 调试
 

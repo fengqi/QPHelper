@@ -68,13 +68,34 @@ final class AppMonitor: ObservableObject {
     private var isAway = false
 
     // 系统关键应用：这些应用永不建议退出
-    // Finder = 桌面和文件浏览器（com.apple.finder）
-    // loginwindow = 登录窗口
-    // systemuiserver = 右侧菜单栏进程
+    // Finder = 桌面和文件浏览器（.regular 类型，有 Dock 图标）
     private let systemCriticalApps: Set<String> = [
         "com.apple.finder",
-        "com.apple.loginwindow",
-        "com.apple.systemuiserver",
+    ]
+
+    // 已知媒体播放器：这些应用在后台播放时不应被建议退出
+    private let mediaPlayerBundleIDs: Set<String> = [
+        "com.apple.Music",            // Apple Music
+        "com.apple.iTunes",           // iTunes（旧版 macOS）
+        "com.spotify.client",         // Spotify
+        "com.tencent.QQMusicMac",     // QQ音乐
+        "com.netease.163music",       // 网易云音乐
+        "com.colliderli.iina",        // IINA
+        "org.videolan.vlc",           // VLC
+        "com.apple.QuickTimePlayerX", // QuickTime Player
+    ]
+
+    // 预置排除的 Bundle ID 前缀：Apple 系统进程不跟踪
+    // .accessory 类型的 com.apple.* 均为系统服务进程，非用户 App
+    private let systemBundlePrefixes: Set<String> = [
+        "com.apple.",
+    ]
+
+    // 预置排除的路径前缀：这些路径下的 .accessory 进程不跟踪
+    private let systemPathPrefixes: Set<String> = [
+        "/System/",
+        "/usr/",
+        "/Library/Input Methods/",
     ]
 
     // 空闲应用信息
@@ -120,13 +141,44 @@ final class AppMonitor: ObservableObject {
         bundleID != myBundleID && excludedApps[bundleID] == nil
     }
 
+    // 判断应用是否属于用户应用（排除系统进程和后台守护进程）
+    // .regular：Dock 上的普通应用 → 始终跟踪
+    // .accessory：状态栏/菜单栏应用 → 仅跟踪用户安装的独立 App
+    // .prohibited：后台守护进程 → 不跟踪
+    private func shouldTrack(app: NSRunningApplication) -> Bool {
+        switch app.activationPolicy {
+        case .regular:
+            return true
+        case .accessory:
+            guard let bundleID = app.bundleIdentifier else { return false }
+            // 排除 Apple 系统进程
+            if systemBundlePrefixes.contains(where: { bundleID.hasPrefix($0) }) { return false }
+            guard let url = app.bundleURL else { return false }
+            let path = url.path
+            // 排除系统目录下的进程
+            if systemPathPrefixes.contains(where: { path.hasPrefix($0) }) { return false }
+            // 排除用户级输入法（~/Library/Input Methods/）
+            if path.hasPrefix(NSHomeDirectory() + "/Library/Input Methods/") { return false }
+            // 排除嵌套在其他 App 内的辅助进程（如 Chrome Helper、Lark Helper）
+            // 这类进程的 bundle 路径有多层 .app，例如：
+            // /Applications/Chrome.app/Contents/Frameworks/.../Helper.app
+            let appBundleCount = path.split(separator: "/").filter { $0.hasSuffix(".app") }.count
+            return appBundleCount == 1
+        case .prohibited:
+            return false
+        @unknown default:
+            return false
+        }
+    }
+
     // 开始监控：注册系统事件监听 + 初始化运行中应用的时间戳
     func start() {
-        // 初始化：给当前所有前台应用设置"当前时间"作为初始活跃时间
-        // activationPolicy == .regular = 前台应用（有 Dock 图标、有窗口的普通应用）
-        // .prohibited = 后台服务，.accessory = 菜单栏应用
+        // 初始化：给当前所有用户可见应用设置"当前时间"作为初始活跃时间
+        // .regular = 前台应用（有 Dock 图标）
+        // .accessory = 菜单栏/状态栏应用（独立 App，排除系统进程和嵌套辅助进程）
+        // .prohibited = 后台守护进程，不跟踪
         for app in NSWorkspace.shared.runningApplications {
-            guard let bundleID = app.bundleIdentifier, app.activationPolicy == .regular else { continue }
+            guard let bundleID = app.bundleIdentifier, shouldTrack(app: app) else { continue }
             lastActiveTime[bundleID] = Date()
         }
 
@@ -159,7 +211,7 @@ final class AppMonitor: ObservableObject {
             self?.checkIdleApps()
         }
 
-        logInfo("监控已启动，当前跟踪 \(self.lastActiveTime.count) 个前台应用")
+        logInfo("监控已启动，当前跟踪 \(self.lastActiveTime.count) 个用户应用")
         checkIdleApps()
     }
 
@@ -248,7 +300,7 @@ final class AppMonitor: ObservableObject {
         // 遍历所有运行中的应用，检测超时空闲
         for app in NSWorkspace.shared.runningApplications {
             guard let bundleID = app.bundleIdentifier,
-                  app.activationPolicy == .regular,      // 只关心前台应用
+                  shouldTrack(app: app),                   // 仅跟踪用户应用，排除系统进程和后台守护
                   !app.isActive,                          // 当前激活的应用不判空闲
                   bundleID != myBundleID,                  // 排除本应用自身
                   !systemCriticalApps.contains(bundleID),  // 排除系统关键应用
@@ -268,6 +320,9 @@ final class AppMonitor: ObservableObject {
                 idleDuration: idleDuration
             )
             tracked.append(info)
+
+            // 已知媒体播放器不判定为空闲（后台播放时不应建议退出）
+            if mediaPlayerBundleIDs.contains(bundleID) { continue }
 
             if idleDuration >= threshold {
                 // 符合条件：加入空闲列表
@@ -324,7 +379,7 @@ final class AppMonitor: ObservableObject {
                 self?.notifiedApps.remove(app.bundleIdentifier)
             },
             onExclude: { [weak self] in self?.excludeApp(bundleID: app.bundleIdentifier, appName: app.appName) },
-            onActivate: { [weak self] in
+            onActivate: {
                 // 点击面板图标/标题区域时打开该应用
                 guard let runningApp = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == app.bundleIdentifier }) else { return }
                 if runningApp.isHidden { runningApp.unhide() }
@@ -360,22 +415,52 @@ final class AppMonitor: ObservableObject {
     // MARK: - 退出应用
 
     func quitApp(bundleIdentifier: String) {
-        // runningApplications(withBundleIdentifier:)：根据 Bundle ID 查找运行中的应用
-        for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier) {
-            // terminate()：发送 quit AppleEvent，相当于 Dock 右键 → 退出
-            // 如果应用有未保存内容，macOS 会由该应用自己弹出确认对话框
-            if app.terminate() {
-                logInfo("❌ 已退出应用: \(bundleIdentifier)")
-            } else {
-                logError("⚠️ 退出失败: \(bundleIdentifier)")
-            }
-        }
-        // 清理跟踪数据
+        // 暂时隐藏该应用（避免退出过程中重复提醒）
         pendingQuitBundleIDs.insert(bundleIdentifier)
-        lastActiveTime.removeValue(forKey: bundleIdentifier)
         notifiedApps.remove(bundleIdentifier)
         currentPanelBundleID = nil
         checkIdleApps()
+
+        // 先尝试温和退出（AppleEvent quit 请求，允许应用保存数据）
+        for app in NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier) {
+            if app.terminate() {
+                logInfo("❌ 请求退出: \(bundleIdentifier)")
+            } else {
+                if app.forceTerminate() {
+                    logInfo("❌ 强制退出: \(bundleIdentifier)")
+                } else {
+                    logError("⚠️ 退出失败: \(bundleIdentifier)")
+                }
+            }
+        }
+
+        // 延迟确认退出结果：terminate() 是异步的，1.5 秒后检查
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+            guard let self else { return }
+            let stillRunning = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+
+            // 仍在运行则兜底强杀（主要针对常驻状态栏的 Electron 应用）
+            for app in stillRunning {
+                if app.forceTerminate() {
+                    logInfo("❌ 兜底强制退出: \(bundleIdentifier)")
+                } else {
+                    logError("⚠️ 无法退出: \(bundleIdentifier)")
+                }
+            }
+
+            // 最终确认
+            let finalCheck = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+            if finalCheck.isEmpty {
+                // 已成功退出，清理跟踪数据
+                lastActiveTime.removeValue(forKey: bundleIdentifier)
+                pendingQuitBundleIDs.remove(bundleIdentifier)
+            } else {
+                // 实在退不掉，恢复监控让用户能在列表中看到该应用
+                pendingQuitBundleIDs.remove(bundleIdentifier)
+                logError("⚠️ 无法退出: \(bundleIdentifier)，已恢复监控")
+            }
+            checkIdleApps()
+        }
     }
 
     // MARK: - 工具
