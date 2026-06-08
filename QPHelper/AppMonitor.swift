@@ -434,8 +434,8 @@ final class AppMonitor: ObservableObject {
             }
         }
 
-        // 延迟确认退出结果：terminate() 是异步的，1.5 秒后检查
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+        // 延迟确认退出结果：terminate() 是异步的，5 秒后检查
+        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
             guard let self else { return }
             let stillRunning = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
 
