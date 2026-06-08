@@ -117,8 +117,12 @@ struct MenuView: View {
 #if DEBUG
             Button(monitor.idleThresholdMinutes == 1  ? "1 分钟 ✓" : "1 分钟")   { monitor.idleThresholdMinutes = 1 }
 #endif
-            Button(monitor.idleThresholdMinutes == 60  ? "1 小时 ✓" : "1 小时")  { monitor.idleThresholdMinutes = 60 }
-            Button(monitor.idleThresholdMinutes == 360 ? "6 小时 ✓" : "6 小时")  { monitor.idleThresholdMinutes = 360 }
+            Button(monitor.idleThresholdMinutes == 30  ? "30 分钟 ✓" : "30 分钟")  { monitor.idleThresholdMinutes = 30 }
+            Button(monitor.idleThresholdMinutes == 60  ? "1 小时 ✓" : "1 小时")   { monitor.idleThresholdMinutes = 60 }
+            Button(monitor.idleThresholdMinutes == 120 ? "2 小时 ✓" : "2 小时")   { monitor.idleThresholdMinutes = 120 }
+            Button(monitor.idleThresholdMinutes == 180 ? "3 小时 ✓" : "3 小时")   { monitor.idleThresholdMinutes = 180 }
+            Button(monitor.idleThresholdMinutes == 360 ? "6 小时 ✓" : "6 小时")   { monitor.idleThresholdMinutes = 360 }
+            Button(monitor.idleThresholdMinutes == 720 ? "12 小时 ✓" : "12 小时") { monitor.idleThresholdMinutes = 720 }
             Button(monitor.idleThresholdMinutes == 1440 ? "24 小时 ✓" : "24 小时") { monitor.idleThresholdMinutes = 1440 }
         } label: {
             HStack(spacing: 4) {
