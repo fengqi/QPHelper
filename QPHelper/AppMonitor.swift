@@ -74,6 +74,7 @@ final class AppMonitor: ObservableObject {
     ]
 
     // 已知媒体播放器：这些应用在后台播放时不应被建议退出
+    // TODO 将来加上播放状态判断
     private let mediaPlayerBundleIDs: Set<String> = [
         "com.apple.Music",            // Apple Music
         "com.apple.iTunes",           // iTunes（旧版 macOS）
