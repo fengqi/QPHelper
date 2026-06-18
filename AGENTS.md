@@ -16,7 +16,7 @@ macOS 菜单栏应用，自动检测并提醒用户关闭长时间未使用的�
 ```
 QPHelper/
 ├── QPHelperApp.swift          # @main 入口，MenuBarExtra + AppDelegate
-├── AppMonitor.swift           # 核心：空闲检测、排除管理、退出应用、离席处理
+├── AppMonitor.swift           # 核心：空闲检测、排除管理、退出/重启应用、离席处理
 ├── MenuView.swift             # 状态栏下拉菜单 UI
 ├── NotificationPanel.swift    # NSPanel 悬浮通知面板
 ├── Helpers.swift              # 共享工具函数（formatDuration, AppIconView）
@@ -35,6 +35,7 @@ QPHelper/
 - **菜单始终显示被监控应用**：`trackedApps` 列出全部被监控应用（含未达阈值的），按空闲时长降序排列。空闲/非空闲用字重和颜色区分。`idleApps` 仅用于弹框决策和日志，不在 UI 直接展示。
 - **通知面板用 NSPanel**：`.nonactivatingPanel` + `.borderless` 风格，右上角弹出，按钮平铺可见，用户操作后才消失。`NotificationActionButtonStyle` 胶囊按钮 + hover 效果。
 - **退出应用**：`NSRunningApplication.terminate()` 是异步的，退出后应用不会立即消失。`pendingQuitBundleIDs` 标记已请求退出的应用，`checkIdleApps` 跳过它们避免重入列表。`handleTerminate` 和定时器兜底清理过期标记。Sandbox 已关闭。
+- **重启应用**：菜单栏右键菜单和通知面板均在「退出」前提供「重启」。实现为温和退出（`terminate()`）后重新启动原应用（`NSWorkspace.shared.openApplication`），让应用有机会保存状态；启动后重置该应用的 `lastActiveTime`，避免立即再次被判定为空闲。
 - **锁屏/休眠**：暂停计时不弹面板；解锁/唤醒后重置全部 `lastActiveTime` 和 `notifiedApps`。
 - **排除列表**：`UserDefaults` key `excludedApps`，`[String: String]`（bundleID → 应用名）。
 - **系统关键应用永不建议退出**：Finder、loginwindow、systemuiserver。
