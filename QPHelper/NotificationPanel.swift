@@ -18,6 +18,7 @@ final class NotificationPanel: NSObject, NSWindowDelegate {
         // @escaping：标记闭包可能被延后调用（闭包被存储、异步回调等）
         // 默认闭包是 @noescape（同步执行），异步保留需要 @escaping，类似 Go 中把 func 存入 struct 字段
         onQuit: @escaping () -> Void,
+        onRestart: @escaping () -> Void,
         onKeep: @escaping () -> Void,
         onExclude: @escaping () -> Void,
         onActivate: @escaping () -> Void,
@@ -32,6 +33,10 @@ final class NotificationPanel: NSObject, NSWindowDelegate {
             idleDuration: idleDuration,
             onQuit: { [weak self] in
                 onQuit()
+                self?.dismiss()
+            },
+            onRestart: { [weak self] in
+                onRestart()
                 self?.dismiss()
             },
             onKeep: { [weak self] in
@@ -127,6 +132,7 @@ private struct PanelContentView: View {
     let icon: NSImage?
     let idleDuration: TimeInterval
     let onQuit: () -> Void
+    let onRestart: () -> Void
     let onKeep: () -> Void
     let onExclude: () -> Void
     let onActivate: () -> Void
@@ -135,6 +141,7 @@ private struct PanelContentView: View {
     // 类似 React 的 useState
     @State private var retainHovered = false
     @State private var excludeHovered = false
+    @State private var restartHovered = false
     @State private var quitHovered = false
 
     var body: some View {
@@ -174,6 +181,10 @@ private struct PanelContentView: View {
                 Button("排除") { onExclude() }
                     .buttonStyle(NotificationActionButtonStyle(isHovered: excludeHovered, isPrimary: false))
                     .onHover { excludeHovered = $0 }
+
+                Button("重启") { onRestart() }
+                    .buttonStyle(NotificationActionButtonStyle(isHovered: restartHovered, isPrimary: false))
+                    .onHover { restartHovered = $0 }
 
                 Button("退出") { onQuit() }
                     .buttonStyle(NotificationActionButtonStyle(isHovered: quitHovered, isPrimary: false))

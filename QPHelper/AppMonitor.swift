@@ -323,7 +323,7 @@ final class AppMonitor: ObservableObject {
             tracked.append(info)
 
             // 已知媒体播放器不判定为空闲（后台播放时不应建议退出）
-            if mediaPlayerBundleIDs.contains(bundleID) { continue }
+            //if mediaPlayerBundleIDs.contains(bundleID) { continue }
 
             if idleDuration >= threshold {
                 // 符合条件：加入空闲列表
@@ -374,6 +374,7 @@ final class AppMonitor: ObservableObject {
             idleDuration: app.idleDuration,
             // 闭包 = Go 的 func 字面量 / Java 的 lambda（() -> Void = 无参数无返回值）
             onQuit: { [weak self] in self?.quitApp(bundleIdentifier: app.bundleIdentifier) },
+            onRestart: { [weak self] in self?.restartApp(bundleIdentifier: app.bundleIdentifier) },
             onKeep: { [weak self] in
                 // 用户点击"保留"：重置该应用的空闲计时，下个周期再提醒
                 self?.lastActiveTime[app.bundleIdentifier] = Date()
@@ -461,6 +462,92 @@ final class AppMonitor: ObservableObject {
                 logError("⚠️ 无法退出: \(bundleIdentifier)，已恢复监控")
             }
             checkIdleApps()
+        }
+    }
+
+    // MARK: - 重启应用
+
+    /// 温和退出应用后再重新启动，模拟 Dock 右键退出 + 点击启动的行为。
+    /// 使用 terminate() 而非 forceTerminate()，让应用有机会保存状态；
+    /// 确认进程消失后再通过 NSWorkspace 启动原应用。
+    func restartApp(bundleIdentifier: String) {
+        // 暂时隐藏该应用（避免重启过程中重复提醒/弹窗）
+        pendingQuitBundleIDs.insert(bundleIdentifier)
+        notifiedApps.remove(bundleIdentifier)
+        currentPanelBundleID = nil
+        checkIdleApps()
+
+        // 获取应用包路径，用于退出后重新启动
+        guard let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleIdentifier) else {
+            logError("⚠️ 找不到应用路径，无法重启: \(bundleIdentifier)")
+            pendingQuitBundleIDs.remove(bundleIdentifier)
+            checkIdleApps()
+            return
+        }
+
+        let runningApps = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+
+        // 应用未在运行则直接启动（理论上不会走到这里，菜单只显示运行中的应用）
+        if runningApps.isEmpty {
+            launchApp(at: appURL, bundleIdentifier: bundleIdentifier)
+            return
+        }
+
+        // 请求温和退出：给应用保存状态的机会
+        var terminateRequested = false
+        for app in runningApps {
+            if app.terminate() {
+                terminateRequested = true
+                logInfo("🔄 请求退出以重启: \(bundleIdentifier)")
+            }
+        }
+
+        guard terminateRequested else {
+            logError("⚠️ 无法请求退出，取消重启: \(bundleIdentifier)")
+            pendingQuitBundleIDs.remove(bundleIdentifier)
+            checkIdleApps()
+            return
+        }
+
+        // 轮询等待应用完全退出（最多 5 秒），退出后立即启动
+        var attempts = 0
+        Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] timer in
+            guard let self else { timer.invalidate(); return }
+            attempts += 1
+
+            let stillRunning = NSRunningApplication.runningApplications(withBundleIdentifier: bundleIdentifier)
+            if stillRunning.isEmpty {
+                timer.invalidate()
+                launchApp(at: appURL, bundleIdentifier: bundleIdentifier)
+            } else if attempts >= 50 {
+                // 5 秒内未退出，放弃重启并恢复监控
+                timer.invalidate()
+                logError("⚠️ 重启超时，应用未退出: \(bundleIdentifier)")
+                pendingQuitBundleIDs.remove(bundleIdentifier)
+                checkIdleApps()
+            }
+        }
+    }
+
+    /// 通过 NSWorkspace 启动指定路径的应用，完成后恢复监控。
+    private func launchApp(at url: URL, bundleIdentifier: String) {
+        let config = NSWorkspace.OpenConfiguration()
+        // 后台启动：避免打断用户当前工作；与 Dock 点击启动的唯一区别就在这里
+        config.activates = false
+
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { [weak self] _, error in
+            DispatchQueue.main.async { [weak self] in
+                guard let self = self else { return }
+                if let error {
+                    logError("⚠️ 启动应用失败: \(bundleIdentifier), \(error.localizedDescription)")
+                } else {
+                    logInfo("🔄 已重启应用: \(bundleIdentifier)")
+                    // 新启动的应用视为刚刚活跃，避免立即又被判定为空闲
+                    self.lastActiveTime[bundleIdentifier] = Date()
+                }
+                self.pendingQuitBundleIDs.remove(bundleIdentifier)
+                self.checkIdleApps()
+            }
         }
     }
 

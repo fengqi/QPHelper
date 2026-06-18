@@ -55,6 +55,7 @@ struct MenuView: View {
             Text("已空闲 \(formatDuration(app.idleDuration))")
                 .foregroundColor(.secondary)
             Divider()
+            Button("重启") { monitor.restartApp(bundleIdentifier: app.bundleIdentifier) }
             Button("退出") { monitor.quitApp(bundleIdentifier: app.bundleIdentifier) }
             Button("排除") { monitor.excludeApp(bundleID: app.bundleIdentifier, appName: app.appName) }
         } label: {
