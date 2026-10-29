@@ -73,19 +73,6 @@ final class AppMonitor: ObservableObject {
         "com.apple.finder",
     ]
 
-    // 已知媒体播放器：这些应用在后台播放时不应被建议退出
-    // TODO 将来加上播放状态判断
-    private let mediaPlayerBundleIDs: Set<String> = [
-        "com.apple.Music",            // Apple Music
-        "com.apple.iTunes",           // iTunes（旧版 macOS）
-        "com.spotify.client",         // Spotify
-        "com.tencent.QQMusicMac",     // QQ音乐
-        "com.netease.163music",       // 网易云音乐
-        "com.colliderli.iina",        // IINA
-        "org.videolan.vlc",           // VLC
-        "com.apple.QuickTimePlayerX", // QuickTime Player
-    ]
-
     // 预置排除的 Bundle ID 前缀：Apple 系统进程不跟踪
     // .accessory 类型的 com.apple.* 均为系统服务进程，非用户 App
     private let systemBundlePrefixes: Set<String> = [
@@ -295,6 +282,11 @@ final class AppMonitor: ObservableObject {
         guard !isAway else { return }
         let now = Date()
         let threshold = TimeInterval(idleThresholdMinutes * 60)
+
+        // 当前正在输出音频的应用集合：后台放歌的播放器不应被判定为空闲
+        // 查询失败时返回空集合，行为退化为原有的纯时间判定
+        let audioPlayingBundleIDs = AudioPlayingDetector.playingAppBundleIDs()
+
         var idle: [IdleAppInfo] = []
         var tracked: [IdleAppInfo] = []
 
@@ -322,8 +314,11 @@ final class AppMonitor: ObservableObject {
             )
             tracked.append(info)
 
-            // 已知媒体播放器不判定为空闲（后台播放时不应建议退出）
-            //if mediaPlayerBundleIDs.contains(bundleID) { continue }
+            // 正在输出音频的应用不判定为空闲（后台放歌的播放器不应被建议退出）
+            if audioPlayingBundleIDs.contains(bundleID) {
+                logDebug("🎵 跳过正在播放音频的应用: \(info.appName)")
+                continue
+            }
 
             if idleDuration >= threshold {
                 // 符合条件：加入空闲列表

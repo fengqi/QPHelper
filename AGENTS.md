@@ -17,6 +17,7 @@ macOS 菜单栏应用，自动检测并提醒用户关闭长时间未使用的�
 QPHelper/
 ├── QPHelperApp.swift          # @main 入口，MenuBarExtra + AppDelegate
 ├── AppMonitor.swift           # 核心：空闲检测、排除管理、退出/重启应用、离席处理
+├── AudioPlayingDetector.swift # Core Audio 检测哪些应用正在输出音频
 ├── MenuView.swift             # 状态栏下拉菜单 UI
 ├── NotificationPanel.swift    # NSPanel 悬浮通知面板
 ├── Helpers.swift              # 共享工具函数（formatDuration, AppIconView）
@@ -41,7 +42,7 @@ QPHelper/
 - **系统关键应用永不建议退出**：Finder、loginwindow、systemuiserver。
 - **图标内存**：`IdleAppInfo` 不持有 `NSImage`，图标通过 `AppIconView` 按需查找。
 - **日志**：`logInfo`/`logDebug` 在 Release 构建中为 no-op，`logError` 保留。
-- **媒体播放器白名单**：`mediaPlayerBundleIDs` 集合包含已知媒体播放器（Apple Music、Spotify、QQ音乐、网易云音乐、IINA、VLC、QuickTime Player 等），这些应用在后台播放时不应被建议退出，不判定为空闲。
+- **音频播放检测替代媒体白名单**：`AudioPlayingDetector` 通过 Core Audio 公开 API（`kAudioHardwarePropertyProcessObjectList` + `kAudioProcessPropertyIsRunningOutput`）实时查询哪些进程正在输出音频，`checkIdleApps` 跳过这些应用——后台放歌的播放器不会被建议退出，暂停后即恢复正常判定。纯属性查询无需任何权限。PID → Bundle ID 优先用 `proc_pidpath` 从可执行路径反推最外层 .app（覆盖 Chromium/Electron 的 Helper 进程，如 Chrome 播放网页视频），`NSRunningApplication` 仅作兜底。查询失败返回空集合，行为退化为纯时间判定。
 
 ## 调试
 
